@@ -1,23 +1,27 @@
 from dataclasses import dataclass # practical for object oriented coding have a look here https://docs.python.org/3/library/dataclasses.html
-#from tqdm import tqdm
+from tqdm import tqdm
 
-def index_collection(documents, index):
+def index_collection(documents, indices):
     '''
     # INPUT:     ## documents is the collection of documents 
-                 ## index is the type of index (inverted index or positional index used)
+                 ## indices is an iterable of indices like [inverted index, positional index ]
     
     # OUTPUT:    ## loading the index to use for retrieval:
     '''
-    for document in documents:
-        index.index_document(document)
-        if document.ID%200==0:
-            print('{} document(s) have been indexed'.format(document.ID))
+    n=1000
+    for document in tqdm(documents, total=n):
+        for index in indices: index.index_document(document)
     return index
 
 
 @dataclass
-class Document:
+class Collection:
+    '''collection of documents characteristics'''
+    size: int # the maximal number of documents in the collection
+
+@dataclass
+class Document(Collection):
     '''documents'''
-    ID: int
-    content: str
+    ID: int  # identifier of the document
+    content: str  # content of the document
 
