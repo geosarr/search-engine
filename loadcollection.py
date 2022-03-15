@@ -60,6 +60,6 @@ def load_collection_wiki(file_name='enwiki-latest-abstract.xml.gz', data_path = 
             
             element.clear()
 
-def load_mar
+
     
     
