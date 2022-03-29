@@ -4,7 +4,8 @@ from nltk.stem import PorterStemmer
 import re
 import numpy as np
 
-
+import nltk
+nltk.download("words")
 
 def clean(text):
     # We do not want to split composed words with a '-' character in the middle, like 'egg-based' 
