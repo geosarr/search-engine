@@ -8,16 +8,9 @@ def index_collection(documents, indices):
     
     # OUTPUT:    ## loading the index to use for retrieval:
     '''
-    n=1000
-    for document in tqdm(documents, total=n):
+    for document in documents:
         for index in indices: index.index_document(document)
     return index
-
-
-@dataclass
-class Collection:
-    '''collection of documents characteristics'''
-    size: int # the maximal number of documents in the collection
 
 @dataclass
 class Document(Collection):
