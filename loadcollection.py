@@ -3,7 +3,6 @@ import re
 import sys
 import os
 from lxml import etree
-from gensim.corpora import WikiCorpus
 import gzip
 from datasets import load_dataset
 from tqdm import tqdm
@@ -26,7 +25,7 @@ def load_collection_ms_marco():
   data=data['train']
   n=len(data)
   doc_id=1
-  for d in tqdm(data['train'], total=n):
+  for d in tqdm(data, total=n):
     for text in d["passages"]["passage_text"]:
       yield Document(ID=doc_id, content=text)
       doc_id+=1
