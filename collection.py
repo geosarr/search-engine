@@ -13,7 +13,7 @@ def index_collection(documents, indices):
     return index
 
 @dataclass
-class Document(Collection):
+class Document:
     '''documents'''
     ID: int  # identifier of the document
     content: str  # content of the document
