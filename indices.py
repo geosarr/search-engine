@@ -36,7 +36,7 @@ class InvertedIndex:
                     self.char_t_index[char].add(term)
                 
         # Invert indexing the document   
-        terms = inverted_index_preprocessing(document.content) 
+        terms = positional_index_preprocessing(document.content) 
         self.proc_terms[document.ID]=terms
         for token in set(terms):
             if self.sort_postings:
