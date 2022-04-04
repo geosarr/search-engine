@@ -1,5 +1,5 @@
 from collection import index_collection
-from loadcollection import load_collection_cran
+from loadcollection import load_collection_cran, load_collection_ms_marco
 from indices import InvertedIndex, PositionalIndex
 from search import  term_freq, doc_freq, unigram_model
 import pickle
@@ -23,16 +23,17 @@ def read_pickle(name, path='./data'):
         
         
         
-def save_load(save=True, save_path="./data"):
+def save_load(dataset="ms_marco", save=True, save_path="./data"):
+    dico={"cran": load_collection_cran(), "ms_marco": load_collection_ms_marco()}
     if save:
         print(".....................Inverted Index with sorted postings.....................")
-        inverted_index_sortpost=index_collection(load_collection_cran(), InvertedIndex(include_char_index=True, ngram=3))
+        inverted_index_sortpost=index_collection(dico[dataset], InvertedIndex(include_char_index=True, ngram=3))
         print(".....................Inverted Index with unsorted postings.....................")
-        inverted_index_unsortpost=index_collection(load_collection_cran(), InvertedIndex(sort_postings=False))
+        inverted_index_unsortpost=index_collection(dico[dataset], InvertedIndex(sort_postings=False))
         print(".....................Positional Index with sorted postings.....................")
-        positional_index_sortpost=index_collection(load_collection_cran(),PositionalIndex(sort_postings=True))
+        positional_index_sortpost=index_collection(dico[dataset],PositionalIndex(sort_postings=True))
         print(".....................Positional Index with unsorted postings.....................")
-        positional_index_unsortpost=index_collection(load_collection_cran(),PositionalIndex(sort_postings=False))
+        positional_index_unsortpost=index_collection(dico[dataset],PositionalIndex(sort_postings=False))
         print(".....................Term and document frequencies.....................")
         term_freqs_log,term_freqs_raw,doc_freqs=term_freq(positional_index_unsortpost),term_freq(positional_index_unsortpost, 'raw'),doc_freq(positional_index_unsortpost)
         print(".....................Unigram.....................")
@@ -61,4 +62,4 @@ def save_load(save=True, save_path="./data"):
     
     return inverted_index_sortpost, inverted_index_unsortpost, positional_index_sortpost, positional_index_unsortpost, term_freqs_log, term_freqs_raw, doc_freqs, unigram
         
-    
+   
