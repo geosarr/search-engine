@@ -22,6 +22,7 @@ class InvertedIndex:
         '''
         if document.ID not in self.documents:
             self.documents[document.ID] = document
+            self.proc_terms[document.ID] = list()
         
         # Character indexing the document
         if self.include_char_index:
@@ -36,7 +37,7 @@ class InvertedIndex:
                 
         # Invert indexing the document   
         terms = inverted_index_preprocessing(document.content) 
-        proc_terms[document.ID]=terms
+        self.proc_terms[document.ID]=terms
         for token in set(terms):
             if self.sort_postings:
                 if token not in self.index:
