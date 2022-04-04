@@ -19,21 +19,15 @@ def load_collection_cran():
     docs.clear() # to save memory
        
 
-# def make_corpus(in_f, out_f):
-
-# 	"""Convert Wikipedia xml dump file to text corpus"""
-
-# 	output = open('./data/wiki_data/'+out_f, 'w')
-# 	wiki = WikiCorpus(in_f)
-
-# 	i = 0
-# 	for text in wiki.get_texts():
-# 		output.write(bytes(' '.join(text), 'utf-8').decode('utf-8') + '\n')
-# 		i = i + 1
-# 		# if (i % 10000 == 0):
-# 		# 	print('Processed ' + str(i) + ' articles')
-# 	output.close()
-# 	print('Processing complete!')
+def load_collection_ms_marco():
+  data=load_dataset('ms_marco', 'v1.1')
+  data=data['train']
+  doc_id=1
+  for d in data['train']:
+    for text in d["passages"]["passage_text"]:
+      yield Document(ID=doc_id, content=text)
+      doc_id+=1
+    d.clear()
     
 def load_collection_wiki(file_name='enwiki-latest-abstract.xml.gz', data_path = './data/wiki_data', size_max=1000000):
     # get the wikipedia abstract files
