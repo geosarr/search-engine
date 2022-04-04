@@ -8,7 +8,7 @@ def index_collection(documents, index):
     
     # OUTPUT:    ## loading the index to use for retrieval:
     '''
-    print("loading and indexing the collection")
+#     print("loading and indexing the collection")
     for document in documents:
         index.index_document(document)
     return index
