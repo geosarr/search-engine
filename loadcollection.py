@@ -21,8 +21,8 @@ def load_collection_cran():
        
 
 def load_collection_ms_marco():
-  data=load_dataset('ms_marco', 'v1.1')
-  data=data['test']
+  data=load_dataset('ms_marco', 'v1.1', split='test')
+#   data=data['test']
   n=len(data)
   doc_id=1
   for d in tqdm(data, total=n):
