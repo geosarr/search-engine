@@ -4,12 +4,12 @@ from tqdm import tqdm
 def index_collection(documents, indices):
     '''
     # INPUT:     ## documents is the collection of documents 
-                 ## indices is an iterable of indices like [inverted index, positional index ]
+                 ## index is a type of index like inverted index, positional index
     
     # OUTPUT:    ## loading the index to use for retrieval:
     '''
     for document in documents:
-        for index in indices: index.index_document(document)
+        index.index_document(document)
     return index
 
 @dataclass
