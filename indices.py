@@ -7,6 +7,7 @@ from preprocess import inverted_index_preprocessing, positional_index_preprocess
 @dataclass
 class InvertedIndex:
     index: dict=field(default_factory=dict)  # stores the index
+    raw_freq: dict=field(default_factory=dict) # stores the number of occurrences of tokens in the documents they appear
     documents: dict=field(default_factory=dict) # stores the documents by ID, used when retrieving the relevant documents
     sort_postings : bool=True  # says whether or not the postings are sorted
     char_t_index: dict=field(default_factory=dict) # character to term index 
@@ -34,16 +35,23 @@ class InvertedIndex:
                 
         # Invert indexing the document   
         terms = inverted_index_preprocessing(document.content) 
-        for token in terms:
+        for token in set(terms):
             if self.sort_postings:
                 if token not in self.index:
                     self.index[token] = list()
-                bisect.insort(self.index[token], document.ID)
+                    self.raw_freq[token] = list() 
+                bisect.insort(self.index[token], document.ID) 
+                # self.index[token].append(document.ID) works as well if the documents are indexed iteratively with increasing IDs.
+                
+                self.raw_freq[token].append(terms.count(term)) # works if the documents are indexed iteratively one by one
 
+                
             else:
                 if token not in self.index:
                     self.index[token] = set()
                 self.index[token].add(document.ID) 
+         
+            
 
                 
                 
