@@ -5,6 +5,8 @@ import os
 from lxml import etree
 from gensim.corpora import WikiCorpus
 import gzip
+from datasets import load_dataset
+from tqdm import tqdm
 
 def load_collection_cran():
     with open('data/cran.all.1400', 'r') as f:
@@ -22,12 +24,14 @@ def load_collection_cran():
 def load_collection_ms_marco():
   data=load_dataset('ms_marco', 'v1.1')
   data=data['train']
+  n=len(data)
   doc_id=1
-  for d in data['train']:
+  for d in tqdm(data['train'], total=n):
     for text in d["passages"]["passage_text"]:
       yield Document(ID=doc_id, content=text)
       doc_id+=1
     d.clear()
+
     
 def load_collection_wiki(file_name='enwiki-latest-abstract.xml.gz', data_path = './data/wiki_data', size_max=1000000):
     # get the wikipedia abstract files
@@ -53,7 +57,3 @@ def load_collection_wiki(file_name='enwiki-latest-abstract.xml.gz', data_path = 
             doc_id += 1
             
             element.clear()
-
-
-    
-    
