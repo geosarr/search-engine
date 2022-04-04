@@ -9,6 +9,7 @@ class InvertedIndex:
     index: dict=field(default_factory=dict)  # stores the index
     raw_freq: dict=field(default_factory=dict) # stores the number of occurrences of tokens in the documents they appear
     documents: dict=field(default_factory=dict) # stores the documents by ID, used when retrieving the relevant documents
+    proc_terms: dict=field(default_factory=dict) # stores the processed terms of each document
     sort_postings : bool=True  # says whether or not the postings are sorted
     char_t_index: dict=field(default_factory=dict) # character to term index 
     t_char_index: dict=field(default_factory=dict) # term to character index
@@ -35,15 +36,15 @@ class InvertedIndex:
                 
         # Invert indexing the document   
         terms = inverted_index_preprocessing(document.content) 
+        proc_terms[document.ID]=terms
         for token in set(terms):
             if self.sort_postings:
                 if token not in self.index:
                     self.index[token] = list()
-                    self.raw_freq[token] = list() 
+                    self.raw_freq[token] = dict() 
                 bisect.insort(self.index[token], document.ID) 
                 # self.index[token].append(document.ID) works as well if the documents are indexed iteratively with increasing IDs.
-                
-                self.raw_freq[token].append(terms.count(term)) # works if the documents are indexed iteratively one by one
+                self.raw_freq[token][document.ID]=terms.count(token) # works if the documents are indexed iteratively one by one
 
                 
             else:
@@ -109,12 +110,3 @@ class PositionalIndex:
                         bisect.insort(IDs, document.ID); pos=IDs.index(document.ID) 
                         self.index[token].insert(pos+1, {document.ID: [1, [position]]}) 
                     else: self.index[token][1][document.ID]=[1, [position]]
-
-
-                    
-        
-
-                
-
-
-
