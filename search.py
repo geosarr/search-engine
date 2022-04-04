@@ -149,7 +149,7 @@ def term_freq(index, formula='logarithm'):
                 return {ID: {term: 1+log10(term_info[0]) for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
             else:
                 return {ID: {term: 1+log10(term_info[0]) for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-     elif type(index)==InvertedIndex:
+    elif type(index)==InvertedIndex:
         if formula=="logarithm":
             return {ID: {term: 1+log10(index.raw_freq[term][ID]) for term in set(index.proc_terms[ID])} for ID in index.documents}
         
