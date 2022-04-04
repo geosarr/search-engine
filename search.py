@@ -111,15 +111,20 @@ def positional_intersect(P, k, sort):
 
 def doc_freq(index, formula='idf'):
     '''
-    Computing the document frequency of the index terms
+    Computing the inverted document frequency of the index terms
     '''
-    terms=index.index.keys()
-    if type(index)!=PositionalIndex:
-        return("You must use a positional index")
-    if formula=='idf':
-        return {term: log10(len(index.documents)/index.index[term][0]) if term in index.index else 0 for term in terms}
-    elif formula=='prob_idf':
-        return {term: log10((len(index.documents)-index.index[term][0])/index.index[term][0]) if term in index.index else 0 for term in terms}
+    if type(index)==PositionalIndex:
+        if formula=='idf':
+            return {term: log10(len(index.documents)/index.index[term][0]) for term in index.index}
+        elif formula=='prob_idf':
+            return {term: log10((len(index.documents)-index.index[term][0])/index.index[term][0]) for term in index.index}
+        
+    elif type(index)==InvertedIndex:
+        if formula=='idf':
+            return {term: log10(len(index.documents)/len(index.index[term])) for term in index.index}
+        elif formula=='prob_idf':
+            return {term: log10((len(index.documents)-len(index.index[term]))/len(index.index[term])) for term in index.index}
+        
     
     
 
@@ -128,24 +133,25 @@ def term_freq(index, formula='logarithm'):
     Computing the term frequencies
     '''
     terms=index.index.keys()
-    if type(index)!=PositionalIndex:
-        return("You must use a positional index")
-    if formula=="boolean":
-        if index.sort_postings:
-            return {ID: {term: (term_info[0]>0)*1 for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
-        else:
-            return {ID: {term: (term_info[0]>0)*1 for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-    elif formula=="raw":
-        if index.sort_postings:
-            return {ID: {term: term_info[0] for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
-        else:
-            return {ID: {term: term_info[0] for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-    elif formula=="logarithm":
-        if index.sort_postings:
-            return {ID: {term: 1+log10(term_info[0]) for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
-        else:
-            return {ID: {term: 1+log10(term_info[0]) for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-        
+    if type(index)==PositionalIndex:
+        if formula=="boolean":
+            if index.sort_postings:
+                return {ID: {term: (term_info[0]>0)*1 for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
+            else:
+                return {ID: {term: (term_info[0]>0)*1 for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
+        elif formula=="raw":
+            if index.sort_postings:
+                return {ID: {term: term_info[0] for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
+            else:
+                return {ID: {term: term_info[0] for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
+        elif formula=="logarithm":
+            if index.sort_postings:
+                return {ID: {term: 1+log10(term_info[0]) for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
+            else:
+                return {ID: {term: 1+log10(term_info[0]) for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
+     elif type(index)==InvertedIndex:
+        if formula=="logarithm":
+            return {ID: {term: 1+log10(index.raw_freq[term][ID]) for term in set(index.proc_terms[ID])} for ID in index.documents}
         
         
 def unigram_model(term_freqs_raw):
@@ -222,8 +228,8 @@ def vsm(query, index, term_freqs, doc_freqs, top=10, correct_query=False):
     Ranking the collection documents with respect to their scaled (by the norm/length of the query) cosine similarity with the query
     and returning at most the top N relevant documents.
     '''
-    if type(index)!=PositionalIndex:
-        return ("The index should be a positional index")
+#     if type(index)!=PositionalIndex:
+#         return ("The index should be a positional index")
     
     if correct_query:
         query=query_correction(query)
@@ -233,8 +239,9 @@ def vsm(query, index, term_freqs, doc_freqs, top=10, correct_query=False):
                         for term in preprocessed_query}
     for term in preprocessed_query:
         if term in index.index:
-            if index.sort_postings: doc_ids=[id_ for dico in index.index[term][1:] for id_ in dico] 
-            else: doc_ids=index.index[token][1].keys()
+#             if index.sort_postings: doc_ids=[id_ for dico in index.index[term][1:] for id_ in dico] 
+#             else: doc_ids=index.index[term][1].keys()
+            doc_ids=index.index[term]
             for doc_id in doc_ids:
                 doc_scores[doc_id]+=(term_freqs[doc_id][term]*doc_freqs[term]) * query_term_weights[term]
     
