@@ -22,13 +22,12 @@ In the following is presented some vocabulary used to comment the codes:
 The pipeline of the search engine goes as follows (for now):
 
 - Preparing the search engine:
-
-    - the collection of documents is loaded via the script loadcollection.py (e.g. load_collection_cran() function for cran dataset which is first stored on disk inside the folder named data, a direct load from a repository could be considered, example of ms_marco)
+	- the collection of documents is loaded via the script loadcollection.py (e.g. load_collection_cran() function for cran dataset which is first stored on disk inside the folder named data, a direct load from a repository could be considered, example of ms_marco)
         - the documents are iteratively preprocessed using preprocess.py file, indexed with the index_collection() function from collection.py file and the index_document() method associated to the type of index (inverted index or positional index for example in the indices.py file), IDs are at the same time given to the documents.
-	    - the index along with other data (n-grams of token, ...) are saved on disk (saveload.py file)
+        - the index along with other data (n-grams of token, ...) are saved on disk (saveload.py file)
 
-	    - Running the search engine (look at basic_search_engine.ipynb):
-	        - once the user issues a query, a given model takes it as input
-		- the query is preprocessed (preprocess.py file)
-		- some computations are done (depending on the model) in order to retrieve relevant documents (search.py file)
+- Running the search engine (look at basic_search_engine.ipynb):
+	- once the user issues a query, a given model takes it as input
+	- the query is preprocessed (preprocess.py file)
+	- some computations are done (depending on the model) in order to retrieve relevant documents (search.py file)
 
