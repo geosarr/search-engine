@@ -28,8 +28,7 @@ The pipeline of the search engine goes as follows (for now):
 	    - the index along with other data (n-grams of token, ...) are saved on disk (saveload.py file)
 
 	    - Running the search engine (look at basic_search_engine.ipynb):
-
 	        - once the user issues a query, a given model takes it as input
-		    - the query is preprocessed (preprocess.py file)
-		        - some computations are done (depending on the model) in order to retrieve relevant documents (search.py file)
+		- the query is preprocessed (preprocess.py file)
+		- some computations are done (depending on the model) in order to retrieve relevant documents (search.py file)
 
