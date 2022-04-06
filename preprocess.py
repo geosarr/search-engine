@@ -82,7 +82,7 @@ def query_correction(query, index, threshold=0.7, dictionary=set(words.words()))
             sorted_jaccard_coefs=sorted(jaccard_coefs.items(), key=lambda item: item[1], reverse=True)
             #print(sorted_jaccard_coefs)
             top_terms=set(dict(sorted_jaccard_coefs[:int(threshold*len(jaccard_coefs))+1]).keys())
-            print(top_terms)
+            # print(top_terms)
             # Getting the closest dictionary term 
             overlap_dict_top_terms=top_terms.intersection(dictionary)
             #print(overlap_dict_top_terms)
@@ -102,6 +102,13 @@ def query_correction(query, index, threshold=0.7, dictionary=set(words.words()))
               
     return corrected_query                           
             
+def simple_preprocessing(text):
+    '''
+    Simpler version of preprocessing
+    with this version indexing is much faster, i.e the stemming part is time consuming -> Is it worth doing it ?
+    It depends on the result of the search engine.
+    '''
+    return clean(text).split()
 
 
 def inverted_index_preprocessing(text):
