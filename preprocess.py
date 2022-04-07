@@ -9,11 +9,11 @@ nltk.download("words")
 nltk.download('stopwords')
 
 def clean(text):
-    # We do not want to split composed words with a '-' character in the middle, like 'egg-based' 
-    punctuations= ''.join(set(string.punctuation)-{'-'})
-        
+    # punctuations= ''.join(set(string.punctuation)-{'-'})      
+    punctuations= ''.join(set(string.punctuation))         
     preproc_text=text.lower().replace('\n', " ").replace("\t", " ").translate(str.maketrans(' ', ' ', punctuations))
-        
+
+
     # dropping multiple whitespaces
     preproc_text=re.sub(' +', ' ', preproc_text)
         
