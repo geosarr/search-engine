@@ -125,7 +125,6 @@ def positional_intersect_two(P1,P2, k, sort):
         elif docID1<docID2:
             p1+=1
         else: p2+=1
-    #print(result)
     return result
 
 
@@ -135,9 +134,7 @@ def positional_intersect(P, k, sort):
     Intersecting positional posting lists, returning the IDs of the relevant documents
     '''
     result=P[0]
-    #print(result)
     rest=P[1:]
-    #print(rest)
     while len(rest)>0 and len(result)>0:
         result=positional_intersect_two(result, rest[0], k, sort)
         rest=rest[1:]
@@ -169,6 +166,8 @@ def tf(index, formula='logarithm'):
     '''
     Computing the term frequencies
     '''
+    if formula not in ["boolean", "logarithm", "raw"]:
+        raise ValueError ("formula argument should be in ['boolean', 'logarithm', 'raw']")
 
     if type(index)==PositionalIndex:
         terms=index.index.keys()
@@ -193,30 +192,29 @@ def tf(index, formula='logarithm'):
             return {ID: {term: 1+log10(index.raw_freq[ID][term]) for term in index.raw_freq[ID]} for ID in index.documents}
         elif formula=="raw":
             return {ID: {term: index.raw_freq[ID][term] for term in index.raw_freq[ID]} for ID in index.documents}
+        elif formula=="boolean":
+            return {ID: {term: 1 for term in index.raw_freq[ID]} for ID in index.documents}
     
     else: raise TypeError ("tf function only supports PositionalIndex or InvertedIndex types")
         
         
-def unigram_model(index):
+def unigram(index):
     '''
     Computing the unigram language model 
     '''
-    if type(index)==InvertedIndex:
-        return {ID: {term: index.raw_freq[ID][term]/sum([index.raw_freq[id][term] for id in index.index[term]]) 
-                    for term in index.raw_freq[ID]
-                    } 
-                for ID in index.documents
-               }
-    else: raise TypeError ("unigram_model supports only an InvertedIndex type")
-    
-        
+    if type(index)!=InvertedIndex:
+        raise TypeError ("unigram_model supports only an InvertedIndex type")
+    N={term: sum([index.raw_freq[id][term] for id in index.index[term]])
+      for term in index.index}
+    sum_N = sum(N.values())
+    return {ID: {term: N[term]/sum_N for term in index.raw_freq[ID]} for ID in index.documents}        
         
         
         
         
     
     
-def bool_retrieval(index, query, tfreqs=None, idfs=None, top=10, query_type='OR', correct_query=False):
+def bool_rtrvl(index, query, tfreqs=None, idfs=None, top=None, query_type='OR', correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
     '''
     Using boolean retrieval to match the query and documents, where the query is a conjunction of the form
     term_1 AND term_2 AND ...  AND term_n (where the term_i's are the preprocessed and normalized forms of the query elements) 
@@ -230,7 +228,7 @@ def bool_retrieval(index, query, tfreqs=None, idfs=None, top=10, query_type='OR'
 
     if correct_query:
         query=query_correction(query)
-    preprocessed_query=inverted_index_preprocessing(query)
+    preprocessed_query=simple_preprocessing(query)
     overlap=set.intersection(*[set(index.index.keys()), set(preprocessed_query)])
     
     if query_type=='OR':
@@ -260,12 +258,12 @@ def bool_retrieval(index, query, tfreqs=None, idfs=None, top=10, query_type='OR'
 
 
 
-def phrase_retrieval(index , query, tfreqs=None, idfs=None, top=10, correct_query=False):
+def phrase_rtrvl(index , query, tfreqs=None, idfs=None, top=None, query_type=None , correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
     '''
     Using boolean retrieval to get documents relevant for a phrase query (e.g the query "hot dog" means find all the documents in       which the term "hot dog" appears, the retrieval engine should not return documents in which the terms "hot"  and "dog" appear       only separately).
     '''
     if type(index)!=PositionalIndex:
-        raise TypeError ("phrase_retrieval supports only an PositionalIndex type")
+        raise TypeError ("phrase_rtrvl supports only an PositionalIndex type")
     if correct_query:
         query=query_correction(query)
     preprocessed_query=positional_index_preprocessing(query)
@@ -282,7 +280,7 @@ def phrase_retrieval(index , query, tfreqs=None, idfs=None, top=10, correct_quer
 
     
 
-def vsm(index, query,  tfreqs=None, idfs=None, top=10, correct_query=False):
+def vsm(index, query,  tfreqs, idfs, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
     '''
     Ranking the collection documents with respect to their scaled (by the norm/length of the query) cosine similarity with the query
     and returning at most the top N relevant documents.
@@ -300,12 +298,9 @@ def vsm(index, query,  tfreqs=None, idfs=None, top=10, correct_query=False):
 
     for term in preprocessed_query:
         if term in index.index:
-#             if index.sort_postings: doc_ids=[id_ for dico in index.index[term][1:] for id_ in dico] 
-#             else: doc_ids=index.index[term][1].keys()
             doc_ids=index.index[term]
             for doc_id in doc_ids:
                 doc_scores[doc_id]+=(tfreqs[doc_id][term]*idfs[term]) * query_term_weights[term]
-    
     # Do not need to normalize by the query norm since it does not impact the ranking
     doc_scores={ID: doc_scores[ID]/linalg.norm([tfreqs[ID][term]*idfs[term] for term in index.raw_freq[ID]],2) 
                 for ID in doc_scores
@@ -319,19 +314,21 @@ def vsm(index, query,  tfreqs=None, idfs=None, top=10, correct_query=False):
         
     
 
-def bim(index, query, tfreqs=None, idfs=None, top=10, correct_query=False):
+def bim(index, query, tfreqs=None, idfs=None, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
     '''
-    Using binary independence model to rank documents without relevance judgement
+    Using binary independence model to rank documents without relevance judgement, a relavance judgment
+    being a kind of notation/feeback from users.
     '''
     if type(index)!=InvertedIndex:
         raise TypeError ("bim supports only an InvertedIndex type")
     if correct_query:
         query=query_correction(query)
     doc_scores={ID: 0 for ID in index.documents}
-    preprocessed_query=inverted_index_preprocessing(query)
+    preprocessed_query=simple_preprocessing(query)
     K=len(index.documents)
 
     for term in preprocessed_query:
+        # Query terms that do not appear in the collection are not relevant for ranking the documents
         if term in index.index:
             doc_ids=index.index[term]
             for doc_id in doc_ids:
@@ -344,33 +341,32 @@ def bim(index, query, tfreqs=None, idfs=None, top=10, correct_query=False):
 
 
 
-def bim_extension(index, query, tfreqs=None, idfs=None, top=10, extension='two_poisson', k=1.5, b=0.75, correct_query=False):
+def bim_ext(index, query, tfreqs, idfs=None, top=10, query_type=None, correct_query=False, extension='bm25', k=1.5, b=0.75, lang_model=None, smoothing=None):
     '''
     Using binary independence extensions model to rank the documents, accounting for the term frequencies, document
-    lengths.
+    lengths. bm25 is known to be the best among the three extensions: bm25, bm11, two poisson
     '''
-    if type(index )!=PositionalIndex:
-        return ("The index should be a positional index")
+    if type(index )!=InvertedIndex:
+        return ("bim_ext only support an InvertedIndex type")
+    if extension not in ["bm25", "bm11", "two_poisson"]:
+        raise ValueError ("argument extension takes the only values : bm25, bm11, two_poisson")
     if correct_query:
         query=query_correction(query)
     doc_scores={ID: 0 for ID in index.documents}
-    preprocessed_query=positional_index_preprocessing(query)
+    preprocessed_query=simple_preprocessing(query)
     K=len(index.documents)
     l_avg=mean([len(tfreqs[ID]) for ID in index.documents])
 
     for term in preprocessed_query:
         if term in index.index:
-            if index.sort_postings:doc_ids=[id_ for dico in index.index[term][1:] for id_ in dico]
-            else: doc_ids=index.index[term][1].keys()
+            doc_ids=index.index[term]
             for doc_id in doc_ids:
                 freq=tfreqs[doc_id][term]
                 l_doc=len(tfreqs[doc_id])
-                if extension=='two_poisson':
-                    doc_scores[doc_id]+=(freq*(k+1)/(freq+k))*log10(0.5*K/len(doc_ids))
-                elif extension=='bm11':
-                    doc_scores[doc_id]+=(freq*(k+1)/(freq+k*l_doc/l_avg))*log10(0.5*K/len(doc_ids))
-                elif extension=='bm25':
-                    doc_scores[doc_id]+=(freq*(k+1)/(k*(1-b)+freq+k*l_doc*b/l_avg))*log10(0.5*K/len(doc_ids))
+                extensions={"two_poisson":freq*(k+1)/(freq+k), "bm11":freq*(k+1)/(freq+k*l_doc/l_avg),
+                            "bm25":freq*(k+1)/(k*(1-b)+freq+k*l_doc*b/l_avg)}
+                doc_scores[doc_id]+=extensions[extension]*log10(0.5*K/len(doc_ids))
+                
     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
     if len(top_documents)>0:
         if top_documents[0][1]==0:
@@ -379,16 +375,16 @@ def bim_extension(index, query, tfreqs=None, idfs=None, top=10, extension='two_p
 
 
 
-def query_likelihood(index, query, tfreqs=None, idfs=None, top=10, model=None, smoothing=None, kind='unigram', correct_query=False):
+def query_lklh(index, query, tfreqs=None, idfs=None, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
     '''
     Ranking the documents using a language model.
     Warning terms in model should be preprocessed in the same way than in this function.
     '''
     if type(index)!=InvertedIndex:
-        raise TypeError ("query_likelihood supports only an InvertedIndex type")
+        raise TypeError ("query_lklh supports only an InvertedIndex type")
     if correct_query:
         query=query_correction(query)
-    preprocessed_query=inverted_index_preprocessing(query)
+    preprocessed_query=simple_preprocessing(query)
     doc_scores={ID: 0 for ID in index.documents}
 
     for term in preprocessed_query:
@@ -396,9 +392,10 @@ def query_likelihood(index, query, tfreqs=None, idfs=None, top=10, model=None, s
             doc_ids=index.index[term]
             for doc_id in doc_ids:
                 if doc_scores[doc_id]!=0:
-                    if kind=='unigram': doc_scores[doc_id]*=model[doc_id][term]
+                    doc_scores[doc_id]*=lang_model[doc_id][term]
                 else:
-                    doc_scores[doc_id]=model[doc_id][term]
+                    doc_scores[doc_id]=lang_model[doc_id][term]
+
     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
     if len(top_documents)>0:
         if top_documents[0][1]==0:
@@ -406,21 +403,26 @@ def query_likelihood(index, query, tfreqs=None, idfs=None, top=10, model=None, s
     return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
 
 
-def searching(index, tfreqs=None, idfs=None, modl="bool", retrieve_max=5):
-    models={"bool": bool_retrieval, 'phrase': phrase_retrieval, "tf_idf": vsm, "bim":bim}
+def searching(index, modl='tf_idf', tfreqs=None, idfs=None, top=5, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
+    models={"bool": bool_rtrvl, 'phrase': phrase_rtrvl, "tf_idf": vsm, "bim":bim, 'bim_ext': bim_ext, 
+            "query_lklh":query_lklh}
+
     if modl not in models:
         raise ValueError ("The only supported values for the argument model are {}".format(list(models)))
+
     # Thanks Gael Guibon (https://gitlab.com/gguibon) for this tip :)
     query = input('Welcome to the best search engine ever :)\nEnter some keywords or type "exit" to stop the engine:')
     while query != "exit":
-        results=models[modl](index, query, tfreqs, idfs)
-        for doc in results[:retrieve_max]:
-            print(doc,'\n')
-        if len(results[:retrieve_max])==0:
+        results=models[modl](index, query, tfreqs, idfs, top, query_type, correct_query, extension, k, b, lang_model, smoothing)
+        print("Your query: ", query)
+        print("\nResult(s): ")
+        if len(results[:top])>0:
+            for doc in results[:top]:
+                print(doc,'\n')
+        else:
             print('No result found. Try another query :)')
-        query = input('Enter some keywords:')
+        query = input('Enter some keywords, type exit to quit')
         clear_output(wait=True)
-
 
 
     
