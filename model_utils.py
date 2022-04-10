@@ -205,10 +205,10 @@ def unigram(index):
     '''
     if type(index)!=InvertedIndex:
         raise TypeError ("unigram_model supports only an InvertedIndex type")
-    N={term: sum([index.raw_freq[id][term] for id in index.index[term]])
-      for term in index.index}
-    sum_N = sum(N.values())
-    return {ID: {term: N[term]/sum_N for term in index.raw_freq[ID]} for ID in index.documents}        
+    
+    return {ID: {term: index.raw_freq[ID][term]/sum(index.raw_freq[ID].values())
+                for term in index.raw_freq[ID]} 
+            for ID in tqdm(index.documents)}        
         
         
 def doc_embed(index, tfreqs, idfs, word_embeds):
