@@ -8,6 +8,8 @@ import nltk
 nltk.download("words")
 nltk.download('stopwords')
 
+from termcolor import colored
+
 def clean(text):
     # punctuations= ''.join(set(string.punctuation)-{'-'})      
     punctuations= ''.join(set(string.punctuation))         
@@ -53,7 +55,7 @@ def character_ngram(word,n=2):
 
 
 
-def query_correction(query, index, threshold=0.7, dictionary=set(words.words())):
+def query_correction(query, index, threshold=0.7, dictionary=set(words.words("en"))):
     '''
     Correcting the query using character n-grams to prefilter the dictionary candidates
     '''
@@ -98,9 +100,9 @@ def query_correction(query, index, threshold=0.7, dictionary=set(words.words()))
         
     corrected_query=" ".join(cleaned_query_terms)
     if correction:
-        print('Try this query: %s' % (corrected_query))
-              
-    return corrected_query                           
+        print('Did you mean: %s ?' % (colored(corrected_query, "cyan")))
+        print('\n')
+                        
             
 def simple_preprocessing(text):
     '''
