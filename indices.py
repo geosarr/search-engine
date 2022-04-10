@@ -2,9 +2,7 @@ from dataclasses import dataclass, field
 import bisect
 from preprocess import simple_preprocessing, inverted_index_preprocessing, positional_index_preprocessing, character_ngram, clean
 from collections import Counter
-import nltk
-nltk.download('stopwords')
-from nltk.corpus import stopwords
+from tqdm import tqdm
 
 
 @dataclass
@@ -50,9 +48,24 @@ class InvertedIndex:
                 self.index[token].add(document.ID) 
 
         self.raw_freq[document.ID]=Counter(terms)
-            
 
-                
+
+
+@dataclass
+class SubInvertedIndex(InvertedIndex):
+
+    def reindex(self, inv_index, doc_ids):
+        self.index = {term: [ID for ID in inv_index.index[term] if ID in doc_ids] 
+                    if self.sort_postings and inv_index.sort_postings
+                    else set(inv_index.index[term]) - set(doc_ids)
+                    for term in tqdm(inv_index.index)}
+        self.index = {term: posting for term, posting in tqdm(self.index.items()) 
+                     if len(posting)>0}
+        self.documents = {ID: inv_index.documents[ID] for ID in tqdm(doc_ids) 
+        if ID in inv_index.documents}
+        self.raw_freq = {ID: inv_index.raw_freq[ID] for ID in tqdm(self.documents)}
+
+
                 
 @dataclass
 class PositionalIndex:
@@ -83,7 +96,7 @@ class PositionalIndex:
                     self.char_t_index[char].add(term)
         
         # Positional indexing
-        terms = positional_index_preprocessing(document.content)
+        terms = simple_preprocessing(document.content)
         for position, token in enumerate(terms):
             if token not in self.index:
                 # The first element is the document frequency (1 here) the following elements are the document ID followed 

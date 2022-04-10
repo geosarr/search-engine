@@ -1,428 +1,376 @@
 from preprocess import inverted_index_preprocessing, positional_index_preprocessing, simple_preprocessing
-from indices import InvertedIndex, PositionalIndex
-from numpy import log10, sqrt, array, mean, linalg
+from indices import InvertedIndex, PositionalIndex, SubInvertedIndex
+from numpy import log10, sqrt, array, mean, linalg, average, arange, argmin, isin, sum as np_sum, zeros, diag
 from preprocess import query_correction
 from IPython.display import clear_output
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import svds
+import psutil
+import sys
 
+from model_utils import positional_intersect, intersect_increasing_freq, union_many_postings
 
-def intersect(P1,P2):
-    '''
-    Intersecting two posting lists P1 and P2 when they are sorted increasingly in order to have a linear
-    (wrt the sum of the posting's length) complexity.
-    '''
-    p1,p2=0,0
-    n1,n2=len(P1),len(P2)
-    result=[]
-    while p1<n1 and p2<n2:
-        if P1[p1]==P2[p2]:
-            result.append(P1[p1])
-            p1+=1
-            p2+=1
-        elif P1[p1]<P2[p2]:
-            p1+=1
-        else:
-            p2+=1
-    return result
+from search_models import Boolean, Vsm, Bim, BimExt, QueryLklhd, W2Vsm, Lsi
 
+def searching(modl):
+    # models={"bool": bool_rtrvl, 'phrase': phrase_rtrvl, "tf_idf": vsm, "bim":bim, 'bim_ext': bim_ext, 
+    #         "query_lklh":query_lklh, "w2v_vsm": w2v_vsm, "lsi": lsi}
+    models=[Boolean, Vsm, Bim, BimExt, QueryLklhd, W2Vsm, Lsi]
 
-def intersect_increasing_freq(P):
-    '''
-    Intersecting many posting lists in the list P starting from the postings of the rarest terms (in terms of document frequency).
-    The reason why we sort the postings according to their length is that as a rule of thumb the intersection of small postings
-    is more likely to yield smaller postings than the intersection of long postings.
-    '''
-    # sorting the elements of P by length
-    _ , L = zip(*sorted(zip([len(p) for p in P], P)))
-    L=list(L)
-    rest=L[1:]
-    result=L[0]
-    while len(rest)>0 and len(result)>0:
-        posting=rest[0]
-        result=intersect(result,posting)
-        rest=rest[1:]
-    return result
+    if type(modl) not in models:
+        raise ValueError ("The only supported values for the argument model are of type {}".format(list(models)))
 
-def union_two_postings(P1,P2):
-    '''
-    Merging (union) two posting lists P1 and P2 when they are sorted increasingly in order to have a linear
-    (wrt the sum of the posting's length) complexity.
-    '''
-    p1,p2=0,0
-    n1,n2=len(P1),len(P2)
-    result=[]
-    while p1<n1 and p2<n2:
-        if P1[p1]==P2[p2]:
-            result.append(P1[p1])
-            p1+=1
-            p2+=1
-        elif P1[p1]<P2[p2]:
-            result.append(P1[p1])
-            p1+=1
-        else:
-            result.append(P2[p2])
-            p2+=1
-    while p1<n1:
-        result.append(P1[p1])
-        p1+=1
-    while p2<n2:
-        result.append(P2[p2])
-        p2+=1
-    return result
-
-def union_many_postings(P):
-    '''
-    Merging many postings 
-    '''
-    rest=P[1:]
-    result=P[0]
-    while len(rest)>0:
-        result = union_two_postings(result, rest[0])
-        rest=rest[1:]
-    return result
-
-
-def positional_intersect_two(P1,P2, k, sort):
-    '''
-    Intersecting two positional postings P1 and P2 of two terms.
-    P1 and P2 should be of the form [{DocID1:[raw_freq, [position1,position2,...]]}, {DocID2:[raw_freq, [position1,position2,...]]},... ]
-    or {DocID1:[raw_freq, [position1,position2,...]], DocID2:[raw_freq, [position1,position2,...]],...} 
-    k is an integer which says how far the term t2 (of posting P2) is away from t1 (of posting P1). 
-    Careful: the order of P1 and P2 matters: t1 comes first then t2.
-    '''
-    p1,p2=0,0
-    if not sort: 
-        n1,n2=len(P1.keys()), len(P2.keys())
-        P1, P2=sorted(P1.items(), key=lambda item: item[0]), sorted(P2.items(), key=lambda item: item[0])
-        result=dict()
-    else: n1,n2=len(P1),len(P2); result=[]
-        
-    while p1<n1 and p2<n2: 
-        if sort: docID1, docID2 = list(P1[p1].keys())[0], list(P2[p2].keys())[0]   
-        else: docID1, docID2 = P1[p1][0], P2[p2][0]
-        if docID1==docID2:
-            l=[]
-            # lists of terms positions in the documents
-            if sort: l1, l2=list(P1[p1].values())[0][1], list(P2[p2].values())[0][1]  
-            else: l1,l2=P1[p1][1][1], P2[p2][1][1]
-            pp1=0
-            nn1,nn2=len(l1), len(l2)
-            while pp1<nn1:
-                pp2=0
-                while pp2<nn2:
-                    if 1<=l2[pp2]-l1[pp1]<=k:
-                        # the term t2 is in k words ahead from the term t1 (after preprocessing the document)
-                        l.append(l2[pp2])
-                    elif l2[pp2]>l1[pp1]+k: 
-                        break
-                    pp2+=1
-                pp1+=1
-            if len(l)>0:
-                # To make sure that only documents that match the phrase "t1 t2" (after preprocessing) are taken into account
-                if sort: result.append({docID1:[len(l), l]}) # useful for first version
-                else: result[docID1]=[len(l), l]
-            p1+=1
-            p2+=1
-        elif docID1<docID2:
-            p1+=1
-        else: p2+=1
-    return result
-
-
-
-def positional_intersect(P, k, sort):
-    '''
-    Intersecting positional posting lists, returning the IDs of the relevant documents
-    '''
-    result=P[0]
-    rest=P[1:]
-    while len(rest)>0 and len(result)>0:
-        result=positional_intersect_two(result, rest[0], k, sort)
-        rest=rest[1:]
-    if sort: return [list(dico.keys())[0] for dico in result] 
-    return result.keys()
-
-
-
-def idf(index, formula='idf'):
-    '''
-    Computing the inverted document frequency (idf) of the index terms
-    '''
-    if type(index)==PositionalIndex:
-        if formula=='idf':
-            return {term: log10(len(index.documents)/index.index[term][0]) for term in index.index}
-        elif formula=='prob_idf':
-            return {term: log10((len(index.documents)-index.index[term][0])/index.index[term][0]) for term in index.index}
-        
-    elif type(index)==InvertedIndex:
-        if formula=='idf':
-            return {term: log10(len(index.documents)/len(index.index[term])) for term in index.index}
-        elif formula=='prob_idf':
-            return {term: log10((len(index.documents)-len(index.index[term]))/len(index.index[term])) for term in index.index}
-        
-    else: raise TypeError ("idf function only supports PositionalIndex or InvertedIndex types")
-    
-
-def tf(index, formula='logarithm'):
-    '''
-    Computing the term frequencies
-    '''
-    if formula not in ["boolean", "logarithm", "raw"]:
-        raise ValueError ("formula argument should be in ['boolean', 'logarithm', 'raw']")
-
-    if type(index)==PositionalIndex:
-        terms=index.index.keys()
-        if formula=="boolean":
-            if index.sort_postings:
-                return {ID: {term: (term_info[0]>0)*1 for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
-            else:
-                return {ID: {term: (term_info[0]>0)*1 for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-        elif formula=="raw":
-            if index.sort_postings:
-                return {ID: {term: term_info[0] for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
-            else:
-                return {ID: {term: term_info[0] for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-        elif formula=="logarithm":
-            if index.sort_postings:
-                return {ID: {term: 1+log10(term_info[0]) for term in terms for doc in index.index[term][1:] for doc_id, term_info in doc.items() if doc_id==ID} for ID in index.documents}
-            else:
-                return {ID: {term: 1+log10(term_info[0]) for term in terms for doc_id, term_info in index.index[term][1].items() if doc_id==ID} for ID in index.documents}
-    
-    elif type(index)==InvertedIndex:
-        if formula=="logarithm":
-            return {ID: {term: 1+log10(index.raw_freq[ID][term]) for term in index.raw_freq[ID]} for ID in index.documents}
-        elif formula=="raw":
-            return {ID: {term: index.raw_freq[ID][term] for term in index.raw_freq[ID]} for ID in index.documents}
-        elif formula=="boolean":
-            return {ID: {term: 1 for term in index.raw_freq[ID]} for ID in index.documents}
-    
-    else: raise TypeError ("tf function only supports PositionalIndex or InvertedIndex types")
-        
-        
-def unigram(index):
-    '''
-    Computing the unigram language model 
-    '''
-    if type(index)!=InvertedIndex:
-        raise TypeError ("unigram_model supports only an InvertedIndex type")
-    N={term: sum([index.raw_freq[id][term] for id in index.index[term]])
-      for term in index.index}
-    sum_N = sum(N.values())
-    return {ID: {term: N[term]/sum_N for term in index.raw_freq[ID]} for ID in index.documents}        
-        
-        
-        
-        
-    
-    
-def bool_rtrvl(index, query, tfreqs=None, idfs=None, top=None, query_type='OR', correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
-    '''
-    Using boolean retrieval to match the query and documents, where the query is a conjunction of the form
-    term_1 AND term_2 AND ...  AND term_n (where the term_i's are the preprocessed and normalized forms of the query elements) 
-    example the query 'running quickly' should be interpreted as: find the documents where the terms 'run' AND 'quick' appear 
-    (after preprocessing the documents).
-    '''
-    if type(index)!=InvertedIndex:
-        raise TypeError ("bool_retrieval supports only an InvertedIndex type")
-    if query_type not in {"OR", "AND"}:
-        raise ValueError ("The only supported values for argument query_type are OR or AND")
-
-    if correct_query:
-        query=query_correction(query)
-    preprocessed_query=simple_preprocessing(query)
-    overlap=set.intersection(*[set(index.index.keys()), set(preprocessed_query)])
-    
-    if query_type=='OR':
-        if len(overlap)==0:
-            return []
-
-    if query_type=='AND':
-        if len(overlap)!=len(preprocessed_query):
-            return []
-
-    # We fetch the postings of the common terms
-    postings=[index.index[token] for token in overlap]
-    if index.sort_postings:
-        if query_type=="AND":
-            result_posting=intersect_increasing_freq(postings)
-        else:
-            result_posting=union_many_postings(postings) 
-
-    if not index.sort_postings:
-        if query_type=="AND":
-            result_posting=set.intersection(*postings) 
-        else:
-            result_posting=set.union(*postings)
-    return [index.documents[ID] for ID in result_posting]
-
-
-
-
-
-def phrase_rtrvl(index , query, tfreqs=None, idfs=None, top=None, query_type=None , correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
-    '''
-    Using boolean retrieval to get documents relevant for a phrase query (e.g the query "hot dog" means find all the documents in       which the term "hot dog" appears, the retrieval engine should not return documents in which the terms "hot"  and "dog" appear       only separately).
-    '''
-    if type(index)!=PositionalIndex:
-        raise TypeError ("phrase_rtrvl supports only an PositionalIndex type")
-    if correct_query:
-        query=query_correction(query)
-    preprocessed_query=positional_index_preprocessing(query)
-    overlap=[term for term in preprocessed_query if term in index.index]
-    #if len(overlap)<len(preprocessed_query):
-    #    return('Your query does not match the documents, please try a new one')
-    
-    #else:
-    if index.sort_postings: postings=[index.index[term][1:] for term in overlap] 
-    else: postings=[index.index[term][1] for term in overlap]
-    #print(postings)
-    result=positional_intersect(postings, 1, sort=index.sort_postings) 
-    return [index.documents[ID] for ID in result]
-
-    
-
-def vsm(index, query,  tfreqs, idfs, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
-    '''
-    Ranking the collection documents with respect to their scaled (by the norm/length of the query) cosine similarity with the query
-    and returning at most the top N relevant documents.
-    '''
-    if type(index)!=InvertedIndex:
-        raise TypeError ("vsm supports only an InvertedIndex type")
-    if correct_query:
-        query=query_correction(query)
-
-    doc_scores={ID: 0 for ID in index.documents}
-    preprocessed_query=simple_preprocessing(query)
-    query_term_weights={term: preprocessed_query.count(term)*idfs[term] if term in index.index else 0 \
-                        for term in preprocessed_query
-                        }
-
-    for term in preprocessed_query:
-        if term in index.index:
-            doc_ids=index.index[term]
-            for doc_id in doc_ids:
-                doc_scores[doc_id]+=(tfreqs[doc_id][term]*idfs[term]) * query_term_weights[term]
-    # Do not need to normalize by the query norm since it does not impact the ranking
-    doc_scores={ID: doc_scores[ID]/linalg.norm([tfreqs[ID][term]*idfs[term] for term in index.raw_freq[ID]],2) 
-                for ID in doc_scores
-               }
-
-    top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
-    if len(top_documents)>0:
-        if top_documents[0][1]==0:
-            return []
-    return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
-        
-    
-
-def bim(index, query, tfreqs=None, idfs=None, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
-    '''
-    Using binary independence model to rank documents without relevance judgement, a relavance judgment
-    being a kind of notation/feeback from users.
-    '''
-    if type(index)!=InvertedIndex:
-        raise TypeError ("bim supports only an InvertedIndex type")
-    if correct_query:
-        query=query_correction(query)
-    doc_scores={ID: 0 for ID in index.documents}
-    preprocessed_query=simple_preprocessing(query)
-    K=len(index.documents)
-
-    for term in preprocessed_query:
-        # Query terms that do not appear in the collection are not relevant for ranking the documents
-        if term in index.index:
-            doc_ids=index.index[term]
-            for doc_id in doc_ids:
-                doc_scores[doc_id]+=log10(0.5*K/len(doc_ids))
-    top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
-    if len(top_documents)>0:
-        if top_documents[0][1]==0:
-            return []
-    return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
-
-
-
-def bim_ext(index, query, tfreqs, idfs=None, top=10, query_type=None, correct_query=False, extension='bm25', k=1.5, b=0.75, lang_model=None, smoothing=None):
-    '''
-    Using binary independence extensions model to rank the documents, accounting for the term frequencies, document
-    lengths. bm25 is known to be the best among the three extensions: bm25, bm11, two poisson
-    '''
-    if type(index )!=InvertedIndex:
-        return ("bim_ext only support an InvertedIndex type")
-    if extension not in ["bm25", "bm11", "two_poisson"]:
-        raise ValueError ("argument extension takes the only values : bm25, bm11, two_poisson")
-    if correct_query:
-        query=query_correction(query)
-    doc_scores={ID: 0 for ID in index.documents}
-    preprocessed_query=simple_preprocessing(query)
-    K=len(index.documents)
-    l_avg=mean([len(tfreqs[ID]) for ID in index.documents])
-
-    for term in preprocessed_query:
-        if term in index.index:
-            doc_ids=index.index[term]
-            for doc_id in doc_ids:
-                freq=tfreqs[doc_id][term]
-                l_doc=len(tfreqs[doc_id])
-                extensions={"two_poisson":freq*(k+1)/(freq+k), "bm11":freq*(k+1)/(freq+k*l_doc/l_avg),
-                            "bm25":freq*(k+1)/(k*(1-b)+freq+k*l_doc*b/l_avg)}
-                doc_scores[doc_id]+=extensions[extension]*log10(0.5*K/len(doc_ids))
-                
-    top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
-    if len(top_documents)>0:
-        if top_documents[0][1]==0:
-            return []
-    return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
-
-
-
-def query_lklh(index, query, tfreqs=None, idfs=None, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
-    '''
-    Ranking the documents using a language model.
-    Warning terms in model should be preprocessed in the same way than in this function.
-    '''
-    if type(index)!=InvertedIndex:
-        raise TypeError ("query_lklh supports only an InvertedIndex type")
-    if correct_query:
-        query=query_correction(query)
-    preprocessed_query=simple_preprocessing(query)
-    doc_scores={ID: 0 for ID in index.documents}
-
-    for term in preprocessed_query:
-        if term in index.index:
-            doc_ids=index.index[term]
-            for doc_id in doc_ids:
-                if doc_scores[doc_id]!=0:
-                    doc_scores[doc_id]*=lang_model[doc_id][term]
-                else:
-                    doc_scores[doc_id]=lang_model[doc_id][term]
-
-    top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
-    if len(top_documents)>0:
-        if top_documents[0][1]==0:
-            return []
-    return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
-
-
-def searching(index, modl='tf_idf', tfreqs=None, idfs=None, top=5, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None):
-    models={"bool": bool_rtrvl, 'phrase': phrase_rtrvl, "tf_idf": vsm, "bim":bim, 'bim_ext': bim_ext, 
-            "query_lklh":query_lklh}
-
-    if modl not in models:
-        raise ValueError ("The only supported values for the argument model are {}".format(list(models)))
-
-    # Thanks Gael Guibon (https://gitlab.com/gguibon) for this tip :)
+    # Thanks to Gael Guibon (https://gitlab.com/gguibon) for this tip :)
     query = input('Welcome to the best search engine ever :)\nEnter some keywords or type "exit" to stop the engine:')
     while query != "exit":
-        results=models[modl](index, query, tfreqs, idfs, top, query_type, correct_query, extension, k, b, lang_model, smoothing)
+        results=modl.retrieval(query=query)
         print("Your query: ", query)
         print("\nResult(s): ")
-        if len(results[:top])>0:
-            for doc in results[:top]:
+        if results==None: 
+            print('Quitting the search engine')
+            break
+
+        elif len(results[:modl.top])>0:
+            for doc in results[:modl.top]:
                 print(doc,'\n')
         else:
             print('No result found. Try another query :)')
         query = input('Enter some keywords, type exit to quit')
         clear_output(wait=True)
+
+# def bool_rtrvl(index, query, tfreqs=None, idfs=None, top=None, query_type='OR', correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None,svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Using boolean retrieval to match the query and documents, where the query is a conjunction of the form
+#     term_1 AND term_2 AND ...  AND term_n (where the term_i's are the preprocessed and normalized forms of the query elements) 
+#     example the query 'running quickly' should be interpreted as: find the documents where the terms 'run' AND 'quick' appear 
+#     (after preprocessing the documents).
+#     '''
+    
+#     if type(index)!=InvertedIndex:
+#         raise TypeError ("bool_retrieval supports only an InvertedIndex type")
+#     if query_type not in {"OR", "AND"}:
+#         raise ValueError ("The only supported values for argument query_type are OR or AND")
+
+#     if correct_query:
+#         query=query_correction(query)
+#     preprocessed_query=simple_preprocessing(query)
+#     overlap=set.intersection(*[set(index.index.keys()), set(preprocessed_query)])
+    
+#     if query_type=='OR':
+#         if len(overlap)==0:
+#             return []
+
+#     if query_type=='AND':
+#         if len(overlap)<len(preprocessed_query) or len(overlap)==0:
+#             return []
+
+#     # We fetch the postings of the common terms
+#     postings=[index.index[token] for token in overlap]
+#     if index.sort_postings:
+#         if query_type=="AND":
+#             result_posting=intersect_increasing_freq(postings)
+#         else:
+#             result_posting=union_many_postings(postings) 
+
+#     if not index.sort_postings:
+#         if query_type=="AND":
+#             result_posting=set.intersection(*postings) 
+#         else:
+#             result_posting=set.union(*postings)
+#     return [index.documents[ID] for ID in result_posting]
+
+
+
+
+
+# def phrase_rtrvl(index , query, tfreqs=None, idfs=None, top=None, query_type=None , correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, clustering_model=None, top_center=None, svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Using boolean retrieval to get documents relevant for a phrase query (e.g the query "hot dog" means find all the documents in       
+#     which the term "hot dog" appears, the retrieval engine should not return documents in which the terms "hot"  and "dog" appear       
+#     only separately).
+#     '''
+#     if type(index)!=PositionalIndex:
+#         raise TypeError ("phrase_rtrvl supports only an PositionalIndex type")
+#     if correct_query:
+#         query=query_correction(query)
+#     preprocessed_query=positional_index_preprocessing(query)
+#     overlap=[term for term in preprocessed_query if term in index.index]
+#     #if len(overlap)<len(preprocessed_query):
+#     #    return('Your query does not match the documents, please try a new one')
+    
+#     #else:
+#     if index.sort_postings: postings=[index.index[term][1:] for term in overlap] 
+#     else: postings=[index.index[term][1] for term in overlap]
+#     #print(postings)
+#     result=positional_intersect(postings, 1, sort=index.sort_postings) 
+#     return [index.documents[ID] for ID in result]
+
+    
+
+# def vsm(index, query,  tfreqs, idfs, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None, svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Ranking the collection documents with respect to their scaled (by the norm/length of the query) cosine similarity with the query
+#     and returning at most the top N relevant documents.
+#     '''
+#     if type(index)!=InvertedIndex:
+#         raise TypeError ("vsm supports only an InvertedIndex type")
+#     if correct_query:
+#         query=query_correction(query)
+
+#     doc_scores={ID: 0 for ID in index.documents}
+#     preprocessed_query=simple_preprocessing(query)
+#     query_term_weights={term: preprocessed_query.count(term)*idfs[term] if term in index.index else 0 \
+#                         for term in preprocessed_query
+#                         }
+
+#     for term in preprocessed_query:
+#         if term in index.index:
+#             doc_ids=index.index[term]
+#             for doc_id in doc_ids:
+#                 doc_scores[doc_id]+=(tfreqs[doc_id][term]*idfs[term]) * query_term_weights[term]
+#     # Do not need to normalize by the query norm since it does not impact the ranking
+#     doc_scores={ID: doc_scores[ID]/linalg.norm([tfreqs[ID][term]*idfs[term] for term in index.raw_freq[ID]],2) 
+#                 for ID in doc_scores
+#                }
+
+#     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
+#     if len(top_documents)>0:
+#         if top_documents[0][1]==0:
+#             return []
+#     return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+        
+    
+
+# def bim(index, query, tfreqs=None, idfs=None, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None, svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Using binary independence model to rank documents without relevance judgement, a relavance judgment
+#     being a kind of notation/feeback from users.
+#     '''
+#     if type(index)!=InvertedIndex:
+#         raise TypeError ("bim supports only an InvertedIndex type")
+#     if correct_query:
+#         query=query_correction(query)
+#     doc_scores={ID: 0 for ID in index.documents}
+#     preprocessed_query=simple_preprocessing(query)
+#     K=len(index.documents)
+
+#     for term in preprocessed_query:
+#         # Query terms that do not appear in the collection are not relevant for ranking the documents
+#         if term in index.index:
+#             doc_ids=index.index[term]
+#             for doc_id in doc_ids:
+#                 doc_scores[doc_id]+=log10(0.5*K/len(doc_ids))
+#     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
+#     if len(top_documents)>0:
+#         if top_documents[0][1]==0:
+#             return []
+#     return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+
+
+
+# def bim_ext(index, query, tfreqs, idfs=None, top=10, query_type=None, correct_query=False, extension='bm25', k=1.5, b=0.75, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None, svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Using binary independence extensions model to rank the documents, accounting for the term frequencies, document
+#     lengths. bm25 is known to be the best among the three extensions: bm25, bm11, two poisson
+#     '''
+#     if type(index )!=InvertedIndex:
+#         return ("bim_ext only support an InvertedIndex type")
+#     if extension not in ["bm25", "bm11", "two_poisson"]:
+#         raise ValueError ("argument extension takes the only values : bm25, bm11, two_poisson")
+#     if correct_query:
+#         query=query_correction(query)
+#     doc_scores={ID: 0 for ID in index.documents}
+#     preprocessed_query=simple_preprocessing(query)
+#     K=len(index.documents)
+#     l_avg=mean([len(tfreqs[ID]) for ID in index.documents])
+
+#     for term in preprocessed_query:
+#         if term in index.index:
+#             doc_ids=index.index[term]
+#             for doc_id in doc_ids:
+#                 freq=tfreqs[doc_id][term]
+#                 l_doc=len(tfreqs[doc_id])
+#                 extensions={"two_poisson":freq*(k+1)/(freq+k), "bm11":freq*(k+1)/(freq+k*l_doc/l_avg),
+#                             "bm25":freq*(k+1)/(k*(1-b)+freq+k*l_doc*b/l_avg)}
+#                 doc_scores[doc_id]+=extensions[extension]*log10(0.5*K/len(doc_ids))
+                
+#     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
+#     if len(top_documents)>0:
+#         if top_documents[0][1]==0:
+#             return []
+#     return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+
+
+
+# def query_lklh(index, query, tfreqs=None, idfs=None, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None, svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Ranking the documents using a language model.
+#     Warning terms in model should be preprocessed in the same way than in this function.
+#     '''
+#     if type(index)!=InvertedIndex:
+#         raise TypeError ("query_lklh supports only an InvertedIndex type")
+#     if correct_query:
+#         query=query_correction(query)
+#     preprocessed_query=simple_preprocessing(query)
+#     doc_scores={ID: 0 for ID in index.documents}
+
+#     for term in preprocessed_query:
+#         if term in index.index:
+#             doc_ids=index.index[term]
+#             for doc_id in doc_ids:
+#                 if doc_scores[doc_id]!=0:
+#                     doc_scores[doc_id]*=lang_model[doc_id][term]
+#                 else:
+#                     doc_scores[doc_id]=lang_model[doc_id][term]
+
+#     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
+#     if len(top_documents)>0:
+#         if top_documents[0][1]==0:
+#             return []
+#     return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+
+
+
+# def w2v_vsm(index, query, tfreqs, idfs, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None, svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Using word2vec model to rank the documents given a query:
+#     The idea is to train a word2vec model on a large corpora offline (before querying) use the embeddings to
+#     represent the documents (by a weighted average of its constitutent embeddings, eg a tf-idf weight
+#     '''
+#     if type(index)!=InvertedIndex:
+#         raise TypeError ("w2v_vsm supports only an InvertedIndex type")
+#     if correct_query:
+#         query=query_correction(query)
+#     preprocessed_query=simple_preprocessing(query)
+    
+
+#     # embedding of the query
+#     query_term_weights=[preprocessed_query.count(term)*idfs[term] for term in preprocessed_query if term in idfs]
+#     if sum(query_term_weights)>0:
+#         query_embed=average(a=[word_embeds[term] for term in preprocessed_query if term in word_embeds], axis=0,\
+#                         weights=query_term_weights)
+#     else: return []
+    
+#     if not precluster:
+#         doc_scores={ID: cosine_similarity([query_embed,doc_embeds[ID]])[0,1] for ID in tqdm(index.documents)}
+#     else:
+#         if len(doc_embeds)!=len(doc_cluster_labels):
+#             raise ValueError ("Mismatched lenghts: The number of document embeddings should be equal to the number document cluster labels")
+#         if top_center>len(cluster_centers):
+#             raise ValueError (f'The number of cluster {len(cluster_centers)} should be > top_center {top_center}')
+#         # rank the centroids/centers by decreasing cosine similarity with query
+#         centers_scores={ID: cosine_similarity([query_embed, cluster_centers[ID]])[0,1]
+#                        for ID in range(len(cluster_centers))}
+#         top_centers=sorted(centers_scores.items(), key=lambda item: item[1], reverse=True)[:top_center]
+
+#         # rank documents belonging to the clusters of the top centers
+#         top_centers_labels=[id for id, score in top_centers]
+#         doc_top_clusters=arange(1, len(doc_cluster_labels)+1)[isin(doc_cluster_labels,  top_centers_labels)]
+#         doc_scores={ID: cosine_similarity([query_embed, doc_embeds[ID]])[0,1]
+#                     for ID in doc_top_clusters}
+
+#     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
+#     if len(top_documents)>0:
+#         if top_documents[0][1]==0:
+#             return []
+#     return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+
+
+    
+
+# def lsi(index, query, tfreqs, idfs, top=10, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None,svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     '''
+#     Using Singular Value Decomposition (SVD) of a word-document matrix (words in row and documents in columns)
+#     to rank the documents. This model can be memory consuming
+#     '''
+#     if type(index) not in [InvertedIndex, SubInvertedIndex]:
+#         raise TypeError ("lsi supports only an InvertedIndex type")
+#     if correct_query:
+#         query=query_correction(query)
+
+#     def run_lsi():
+#         preprocessed_query=simple_preprocessing(query)
+#         query_term_weights={term: preprocessed_query.count(term)*idfs[term]\
+#                             for term in preprocessed_query if term in idfs}
+#         u,s,v=svd_word_doc_mat
+#         # dense representation of the query (= its projection on the latent topic space)
+#         proj_query=sum([query_term_weights[term]*u.T[:,wtoi[term]] for term in query_term_weights\
+#                         if term in wtoi]) 
+#         # print(len(proj_query))
+#         try:
+#             if proj_query==0:
+#                 return []
+#         except:
+#             if sum(proj_query)==0:
+#                 return []
+#         # itod={v:k for k,v in dtoi.items()}
+#         # print(dtoi[list(dtoi)[0]])
+#         # print(v.shape)
+
+#         # print(s@v[:,dtoi[list(dtoi)[0]]].shape)
+#         proj_docs ={ID: (diag(s)@v[:,dtoi[ID]]).reshape(s.shape[0]) for ID in dtoi}
+#         # print(proj_docs[list(dtoi)[0]])
+#         doc_scores={ID: cosine_similarity([proj_query, proj_docs[ID]])[0,1] for ID in dtoi}
+
+#         top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
+#         if len(top_documents)>0:
+#             if top_documents[0][1]==0:
+#                 return []
+#         return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+
+#     # check if the model could be run
+#     free_memory=psutil.virtual_memory().free  # free memory in bytes
+#     int_mem=sys.getsizeof(10) # small integer memory usage in bytes
+#     THRESHOLD = 1024 * 1024 * 1024  # 1GB
+#     is_able_to_run = (free_memory - THRESHOLD > len(index.index)*len(index.documents)*int_mem)
+#     if not is_able_to_run:
+#         answer=input("The lsi model may fail due to memory issues. Do you want to pursue ? yes[y] or no[n] ?")
+#         n=1
+#         while answer not in ("yes", "y", "no", "n") and n<4:
+#             answer=input("Do you want to pursue ? yes[y] or no[n] ?")
+#             n+=1
+#         if answer in ('yes', 'y'): 
+#             run_lsi()
+#         else: 
+#             return 
+#     else: run_lsi()
+    
+            
+
+
+
+
+# def searching(index, modl='tf_idf', tfreqs=None, idfs=None, top=5, query_type=None, correct_query=False, extension=None, k=None, b=None, lang_model=None, smoothing=None, doc_embeds=None, word_embeds=None, precluster=False, cluster_centers=None, doc_cluster_labels=None, top_center=None,svd_word_doc_mat=None, wtoi=None, dtoi=None):
+#     models={"bool": bool_rtrvl, 'phrase': phrase_rtrvl, "tf_idf": vsm, "bim":bim, 'bim_ext': bim_ext, 
+#             "query_lklh":query_lklh, "w2v_vsm": w2v_vsm, "lsi": lsi}
+
+#     if modl not in models:
+#         raise ValueError ("The only supported values for the argument model are {}".format(list(models)))
+
+#     # Thanks to Gael Guibon (https://gitlab.com/gguibon) for this tip :)
+#     query = input('Welcome to the best search engine ever :)\nEnter some keywords or type "exit" to stop the engine:')
+#     while query != "exit":
+#         results=models[modl](index, query, tfreqs, idfs, top, query_type, correct_query, extension, k, b, lang_model, smoothing, doc_embeds, word_embeds, precluster, cluster_centers, doc_cluster_labels, top_center, svd_word_doc_mat, wtoi, dtoi)
+#         print("Your query: ", query)
+#         print("\nResult(s): ")
+#         if results==None: 
+#             print('No result found. Try another query :)')
+#             query = input('Enter some keywords, type exit to quit')
+#             pass
+
+#         elif len(results[:top])>0:
+#             for doc in results[:top]:
+#                 print(doc,'\n')
+#         else:
+#             print('No result found. Try another query :)')
+#         query = input('Enter some keywords, type exit to quit')
+#         clear_output(wait=True)
+
+
 
 
     
