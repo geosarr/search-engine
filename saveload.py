@@ -23,43 +23,27 @@ def read_pickle(name, path='./data'):
         
         
         
-def save_load(dataset="ms_marco", save=True, save_path="./data"):
-    dico={"cran": load_collection_cran(), "ms_marco": load_collection_ms_marco()}
+def indexing(dataset="ms_marco", save=True, save_load_path="./data", index_type="inv"):
+    if index_type not in ["inv", "pos"]:
+        raise ValueError ("the function supports only values ['inv', 'pos'] for index_type")
+        
+    data={"cran": load_collection_cran(), "ms_marco": load_collection_ms_marco()}
+    idx={"inv": InvertedIndex, "pos": PositionalIndex}
     if save:
-        print(".....................Inverted Index with sorted postings.....................")
-        inverted_index_sortpost=index_collection(dico[dataset], InvertedIndex(include_char_index=True, ngram=3))
-        # print(".....................Inverted Index with unsorted postings.....................")
-        # inverted_index_unsortpost=index_collection(dico[dataset], InvertedIndex(sort_postings=False))
-        # print(".....................Positional Index with sorted postings.....................")
-        # positional_index_sortpost=index_collection(dico[dataset],PositionalIndex(sort_postings=True))
-        # print(".....................Positional Index with unsorted postings.....................")
-        # positional_index_unsortpost=index_collection(dico[dataset],PositionalIndex(sort_postings=False))
-        # print(".....................Term and document frequencies.....................")
-        # term_freqs_log,term_freqs_raw,doc_freqs=term_freq(positional_index_unsortpost),term_freq(positional_index_unsortpost, 'raw'),doc_freq(positional_index_unsortpost)
-        # print(".....................Unigram.....................")
-        # unigram=unigram_model(term_freqs_raw)
-        # print(".....................Saving the data.....................")
+        print(".....................Collection indexation in progress.....................")
+        index=index_collection(data[dataset], idx[index_type](include_char_index=True, ngram=3))
         try:
-            to_pickle(inverted_index_sortpost, name="inverted_index_sortpost")
-            # to_pickle(inverted_index_unsortpost, name="inverted_index_unsortpost")
-            # to_pickle(positional_index_sortpost, name='positional_index_sortpost'); 
-            # to_pickle(positional_index_unsortpost, name='positional_index_unsortpost');
-            # to_pickle(term_freqs_log, name='term_freqs_log');to_pickle(term_freqs_raw, name='term_freqs_raw');
-            # to_pickle(doc_freqs, name='doc_freqs');to_pickle(unigram, name="unigram")
+            to_pickle(index, "inv", save_load_path)
+            print(".....................Successfully saved the index.....................")
         except:
-            print(".....................Failed to save the data.....................")
+            print(".....................Failed to save the index.....................")
     else:
         print(".....................Loading the data.....................")
         try:
-            inverted_index_sortpost=read_pickle("inverted_index_sortpost");
-            # inverted_index_unsortpost=read_pickle("inverted_index_unsortpost")
-            # positional_index_sortpost=read_pickle('positional_index_sortpost')
-            # positional_index_unsortpost=read_pickle('positional_index_unsortpost');
-            # term_freqs_log=read_pickle('term_freqs_log');term_freqs_raw=read_pickle('term_freqs_raw')
-            # doc_freqs=read_pickle("doc_freqs"); unigram=read_pickle("unigram")
+            index=read_pickle(index_type, save_load_path)
         except:
             print(".....................Failed to load the data.....................")
     
-    return inverted_index_sortpost #, inverted_index_unsortpost, positional_index_sortpost, positional_index_unsortpost, term_freqs_log, term_freqs_raw, doc_freqs, unigram
+    return index
         
    
