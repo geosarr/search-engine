@@ -1,13 +1,9 @@
 from collection import Document
 import re
-import sys
-import os
-from lxml import etree
-import gzip
 from datasets import load_dataset
 from tqdm import tqdm
 
-def load_collection_cran():
+def load_collection_cran(judgments=None, version=None, split=None):
     with open('data/cran.all.1400', 'r') as f:
         docs=f.read().replace("\n", " ")
     f.close()
@@ -20,39 +16,23 @@ def load_collection_cran():
     docs.clear() # to save memory
        
 
-def load_collection_ms_marco():
-  data=load_dataset('ms_marco', 'v1.1', split='test')
-#   data=data['test']
-  n=len(data)
-  doc_id=1
-  for d in tqdm(data, total=n):
-    for text in d["passages"]["passage_text"]:
-      yield Document(ID=doc_id, content=text)
-      doc_id+=1
-    d.clear()
+def load_collection_ms_marco(judgments, version, split):
+    data=load_dataset('ms_marco', version, split=split)
 
-    
-def load_collection_wiki(file_name='enwiki-latest-abstract.xml.gz', data_path = './data/wiki_data', size_max=1000000):
-    # get the wikipedia abstract files
-    file_path=data_path+"/"+file_name
-    if not os.path.isfile(file_path):
-        print("Downloading the data fom wikipedia dumps ...")
-        os.system('wget  https://dumps.wikimedia.org/enwiki/latest/'+file_name)
-        os.system('mv '+file_name+' '+data_path)
-        os.system('rm -r '+file_path)
-        print("Finished downloading")
-    # open a filehandle to the gzipped Wikipedia dump
-    with gzip.open(file_path, 'rb') as f:
-        doc_id = 1
-        # iterparse will yield the entire `doc` element once it finds the
-        # closing `</doc>` tag
-        for _, element in etree.iterparse(f, events=('end',), tag='doc'):
-            content = ' '.join([element.findtext('./title'), element.findtext('./abstract')])
-            
-            yield Document(ID=doc_id, content=content)
-            if (doc_id > size_max):
-                break
-                
-            doc_id += 1
-            
-            element.clear()
+    n=len(data)
+    doc_id=1
+    judgmts=dict()
+    k=0
+    for d in tqdm(data, total=n):
+        query=d["query"]
+        judgmts[query]=dict()
+        for pos, text in enumerate(d["passages"]["passage_text"]):
+            yield Document(ID=doc_id, content=text)
+            if judgments is not None :
+                # the document that is judged as relevant (its relevance is 1+is_selected)
+                try: judgmts[query][doc_id]=1+d["passages"]['is_selected'][pos]
+                except: pass
+            doc_id+=1
+        d.clear()
+    yield judgmts
+

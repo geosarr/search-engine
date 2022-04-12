@@ -312,9 +312,9 @@ def wd(index):
     return WD, wtoi, dtoi
 
 
-def rank_documents(index, doc_scores, top):
+def rank_documents(doc_scores, top):
     top_documents= sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)[:top]
     if len(top_documents)>0:
         if top_documents[0][1]==0:
             return []
-    return [(index.documents[ID], "score = "+str(score)) for ID, score in top_documents]
+    return top_documents
