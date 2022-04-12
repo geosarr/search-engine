@@ -1,7 +1,6 @@
 from collection import index_collection
 from loadcollection import load_collection_cran, load_collection_ms_marco
 from indices import InvertedIndex, PositionalIndex
-# from search import  term_freq, doc_freq, unigram_model
 import pickle
 
 
@@ -23,15 +22,23 @@ def read_pickle(name, path='./data'):
         
         
         
-def indexing(dataset="ms_marco", save=True, save_load_path="./data", index_type="inv"):
-    if index_type not in ["inv", "pos"]:
-        raise ValueError ("the function supports only values ['inv', 'pos'] for index_type")
-        
-    data={"cran": load_collection_cran(), "ms_marco": load_collection_ms_marco()}
+def indexing(dataset="ms_marco", save=True, save_load_path="./data", index_type="inv", judgments=None, version=None, split=None):
+    data={"cran": load_collection_cran, "ms_marco": load_collection_ms_marco}
     idx={"inv": InvertedIndex, "pos": PositionalIndex}
+
+    if index_type not in idx:
+        raise ValueError (f"the function supports only values {list(idx.keys())} for index_type")
+
+    elif dataset not in data:
+        raise ValueError ("The only supported values for argument dataset are {}".format(list(data.keys())))
+
+    elif dataset!="ms_marco" and (version is not None or split is not None):
+        raise ValueError ("Set the arguments split and version to None if dataset='ms_marco' is not used")
+
     if save:
         print(".....................Collection indexation in progress.....................")
-        index=index_collection(data[dataset], idx[index_type](include_char_index=True, ngram=3))
+        index, judgments=index_collection(data[dataset](judgments=judgments, version=version, split=split), \
+                        idx[index_type](include_char_index=True, ngram=3))
         try:
             to_pickle(index, "inv", save_load_path)
             print(".....................Successfully saved the index.....................")
@@ -44,6 +51,6 @@ def indexing(dataset="ms_marco", save=True, save_load_path="./data", index_type=
         except:
             print(".....................Failed to load the data.....................")
     
-    return index
+    return index, judgments
         
    
