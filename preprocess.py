@@ -3,18 +3,15 @@ import string
 from nltk.stem import PorterStemmer
 import re
 import numpy as np
-
 import nltk
 nltk.download("words")
 nltk.download('stopwords')
-
 from termcolor import colored
 
-def clean(text):
-    # punctuations= ''.join(set(string.punctuation)-{'-'})      
+
+def clean(text):     
     punctuations= ''.join(set(string.punctuation))         
     preproc_text=text.lower().replace('\n', " ").replace("\t", " ").translate(str.maketrans(' ', ' ', punctuations))
-
 
     # dropping multiple whitespaces
     preproc_text=re.sub(' +', ' ', preproc_text)
@@ -69,25 +66,23 @@ def query_correction(query, index, threshold=0.7, dictionary=set(words.words("en
         
         # The character gram of the current term
         term_chars=character_ngram(term, index.ngram) 
-        #print(term_chars)
+
         overlap_chars=set.intersection(*[term_chars, chars])
-        #print(overlap_chars)
+
         if len(overlap_chars)>0:
             overlap_terms=set.union(*[index.char_t_index[t] for t in overlap_chars]) 
-            #print(overlap_terms)
+        
             # Getting the 100*threshold % terms that share a higher number of character grams with the current term
             jaccard_coefs={t: len(set.intersection(*[index.t_char_index[t], term_chars]))/\
                                  len(set.union(*[index.t_char_index[t], term_chars])) \
                            for t in  overlap_terms
                            }
-            #print(jaccard_coefs)
+
             sorted_jaccard_coefs=sorted(jaccard_coefs.items(), key=lambda item: item[1], reverse=True)
-            #print(sorted_jaccard_coefs)
             top_terms=set(dict(sorted_jaccard_coefs[:int(threshold*len(jaccard_coefs))+1]).keys())
-            # print(top_terms)
+
             # Getting the closest dictionary term 
             overlap_dict_top_terms=top_terms.intersection(dictionary)
-            #print(overlap_dict_top_terms)
             distance=np.inf
             corrected_term=term
             for t in overlap_dict_top_terms:
@@ -96,7 +91,6 @@ def query_correction(query, index, threshold=0.7, dictionary=set(words.words("en
             cleaned_query_terms[position]=corrected_term
             if corrected_term!=term:
                 correction=True
-        #else: unknown.append(term)
         
     corrected_query=" ".join(cleaned_query_terms)
     if correction:
