@@ -7,8 +7,7 @@ from model_utils import intersect_increasing_freq, union_many_postings, rank_doc
 from numpy import linalg, log10, mean, average, arange, isin, diag
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
-import psutil
-import sys
+
 
 
 
@@ -36,29 +35,6 @@ class Arguments:
     wtoi: dict=field(default_factory=dict)
     dtoi: dict=field(default_factory=dict)
 
-    
-
-    # index: None=None
-    # # modl: str # name of the model
-    # tfreqs: None=None
-    # idfs: None=None
-    # top: None=None
-    # query_type: None=None
-    # correct_query: bool=False
-    # extension: None=None
-    # k: None=None
-    # b: None=None
-    # lang_model: None=None
-    # smoothing: None=None 
-    # doc_embeds: None=None
-    # word_embeds: None=None
-    # precluster: None=None
-    # cluster_centers: None=None
-    # doc_cluster_labels: None=None
-    # top_center: None=None
-    # svd_word_doc_mat: None=None
-    # wtoi: None=None
-    # dtoi: None=None
 
 
 
@@ -104,7 +80,8 @@ class Boolean(Arguments):
                 result_posting=set.intersection(*postings) 
             else:
                 result_posting=set.union(*postings)
-        return [self.index.documents[ID] for ID in result_posting]
+        # A slack score equal to 1 is added to mean that the document is retrieved
+        return [(ID,1) for ID in result_posting]
 
 
 # PENDING
@@ -141,7 +118,7 @@ class Vsm(Arguments):
                     for ID in doc_scores
                 }
         
-        return rank_documents(self.index, doc_scores, self.top)
+        return rank_documents(doc_scores, self.top)
 
 
 
@@ -168,7 +145,7 @@ class Bim(Arguments):
                 for doc_id in doc_ids:
                     doc_scores[doc_id]+=log10(0.5*K/len(doc_ids))
 
-        return rank_documents(self.index, doc_scores, self.top)
+        return rank_documents(doc_scores, self.top)
 
 
 
@@ -202,7 +179,7 @@ class BimExt(Arguments):
                                 "bm25":freq*(self.k+1)/(self.k*(1-self.b)+freq+self.k*l_doc*self.b/l_avg)}
                     doc_scores[doc_id]+=extensions[self.extension]*log10(0.5*K/len(doc_ids))
                     
-        return rank_documents(self.index, doc_scores, self.top)
+        return rank_documents(doc_scores, self.top)
 
 
 
@@ -231,7 +208,7 @@ class QueryLklhd(Arguments):
                     else:
                         doc_scores[doc_id]=self.lang_model[doc_id][term]
 
-        return rank_documents(self.index, doc_scores, self.top)
+        return rank_documents(doc_scores, self.top)
 
 
 
@@ -278,12 +255,13 @@ class W2Vsm(Arguments):
             doc_scores={ID: cosine_similarity([query_embed, self.doc_embeds[ID]])[0,1]
                         for ID in doc_top_clusters}
 
-        return rank_documents(self.index, doc_scores, self.top)
+        return rank_documents(doc_scores, self.top)
 
 
 
 @dataclass
 class Lsi(Arguments):
+
     def retrieval(self, query):
         '''
         Using Singular Value Decomposition (SVD) of a word-document matrix (words in row and documents in columns)
@@ -294,43 +272,22 @@ class Lsi(Arguments):
         if self.correct_query:
             query=query_correction(query)
 
-        def run_lsi():
-            preprocessed_query=simple_preprocessing(query)
-            query_term_weights={term: preprocessed_query.count(term)*self.idfs[term]\
-                                for term in preprocessed_query if term in self.idfs}
-            u,s,v=self.svd_word_doc_mat
+        preprocessed_query=simple_preprocessing(query)
+        query_term_weights={term: preprocessed_query.count(term)*self.idfs[term]\
+                            for term in preprocessed_query if term in self.idfs}
+        u,s,v=self.svd_word_doc_mat
 
-            # dense representation of the query (= its projection on the latent topic space)
-            proj_query=sum([query_term_weights[term]*u.T[:, self.wtoi[term]] for term in query_term_weights\
-                            if term in self.wtoi]) 
-            try:
-                if proj_query==0:
-                    return []
-            except:
-                if sum(proj_query)==0:
-                    return []
+        # dense representation of the query (= its projection on the latent topic space)
+        proj_query=sum([query_term_weights[term]*u.T[:, self.wtoi[term]] for term in query_term_weights\
+                        if term in self.wtoi]) 
+        try:
+            if proj_query==0:
+                return []
+        except:
+            if sum(proj_query)==0:
+                return []
 
-            proj_docs ={ID: (diag(s)@v[:,self.dtoi[ID]]).reshape(s.shape[0]) for ID in self.dtoi}
-            doc_scores={ID: cosine_similarity([proj_query, proj_docs[ID]])[0,1] for ID in self.dtoi}
+        proj_docs ={ID: (diag(s)@v[:,self.dtoi[ID]]).reshape(s.shape[0]) for ID in self.dtoi}
+        doc_scores={ID: cosine_similarity([proj_query, proj_docs[ID]])[0,1] for ID in self.dtoi}
 
-            return rank_documents(self.index, doc_scores, self.top)
-
-        # check if the model could be run
-        # free_memory=psutil.virtual_memory().free  # free memory in bytes
-        # int_mem=sys.getsizeof(10) # small integer memory usage in bytes
-        # THRESHOLD = 1024 * 1024 * 1024  # 1GB
-        # is_able_to_run = (free_memory - THRESHOLD > len(self.index.index)*len(self.index.documents)*int_mem)
-        # if not is_able_to_run:
-        #     answer=input("The lsi model may fail due to memory issues. Do you want to pursue ? yes[y] or no[n] ?")
-        #     n=1
-        #     while answer not in ("yes", "y", "no", "n") and n<4:
-        #         answer=input("Do you want to pursue ? yes[y] or no[n] ?")
-        #         n+=1
-        #     if answer in ('yes', 'y'): 
-        #         # print('ok')
-        #         return run_lsi()
-        #     else: 
-        #         return 
-        # else: return run_lsi()
-        
-        return run_lsi()
+        return rank_documents(doc_scores, self.top)
