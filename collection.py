@@ -1,5 +1,4 @@
 from dataclasses import dataclass # practical for object oriented coding have a look here https://docs.python.org/3/library/dataclasses.html
-from tqdm import tqdm
 
 def index_collection(documents, index):
     '''
@@ -8,10 +7,13 @@ def index_collection(documents, index):
     
     # OUTPUT:    ## loading the index to use for retrieval:
     '''
-#     print("loading and indexing the collection")
+    judgments=None
     for document in documents:
-        index.index_document(document)
-    return index
+        # this if condition is used to get the judgments of documents wrt queries
+        if type(document) in [dict]:
+            judgments=document
+        else: index.index_document(document)
+    return index, judgments
 
 @dataclass
 class Document:
