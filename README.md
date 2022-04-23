@@ -1,4 +1,4 @@
-This is a project on textual collection search engine. This project is greatly inspired by [Building a full-text search engine in 150 lines of Python code](https://bart.degoe.de/building-a-full-text-search-engine-150-lines-of-code/), the Information Retrieval and Web Search lectures at the University of Mannheim 2021, Germany, the Machine learning for NLP lectures and lab sessions at ENSAE Paris 2022, France.
+This is a project on textual collection search engine. This project is greatly inspired by [Building a full-text search engine in 150 lines of Python code](https://bart.degoe.de/building-a-full-text-search-engine-150-lines-of-code/), the Information Retrieval and Web Search lectures at University of Mannheim 2021, Germany, the Machine learning for NLP lectures and lab sessions at ENSAE Paris 2022, France.
 
 # Vocabulary
 In the following, you will some vocabulary used to comment the codes:
