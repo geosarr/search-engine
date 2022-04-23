@@ -13,33 +13,28 @@ from tqdm import tqdm
 
 @dataclass
 class Arguments:
-    index: Union[InvertedIndex, PositionalIndex, SubInvertedIndex] = InvertedIndex() # index of the collection
-    # modl: str # name of the model
-    tfreqs: dict=field(default_factory=dict)
-    idfs: dict=field(default_factory=dict)
-    top: int=5 # int
-    query_type: str="AND" # str
-    correct_query: bool=False # bool
-    extension: str="bim25" # str
-    k: Union[float, int] = 1.5 # Union[float, int]
-    b: Union[float, int] = 0.75 # Union[float, int]
-    lang_model: dict=field(default_factory=dict)
-    smoothing: str="Jelinek" # values Jelinek or Laplace 
-    doc_embeds: dict=field(default_factory=dict)
-    word_embeds: dict=field(default_factory=dict)
-    precluster: bool=False
-    cluster_centers: dict=field(default_factory=dict)
-    doc_cluster_labels: Union[array, list]=array([])
-    top_center: int=50
-    svd_word_doc_mat: Union[array, list]=array([])
-    wtoi: dict=field(default_factory=dict)
-    dtoi: dict=field(default_factory=dict)
+    index: Union[InvertedIndex, PositionalIndex, SubInvertedIndex] = InvertedIndex() 
+    top: int=5
+    correct_query: bool=False 
+    args: dict=field(default_factory=dict)
+
+    # @property
+    # def _check_type(self):
+
+    # def _add_args(self, name, value):
+    #     '''
+    #     Adding some model arguments to args
+    #     '''
+    #     for pos,n in enumerate(name): 
+    #         self.args[n]=value[pos]
 
 
 
 
 @dataclass
 class Boolean(Arguments):
+    query_type: str="AND"
+    name: str='boolean'
     
     def retrieval(self, query):
         '''
@@ -80,8 +75,11 @@ class Boolean(Arguments):
                 result_posting=set.intersection(*postings) 
             else:
                 result_posting=set.union(*postings)
+
         # A slack score equal to 1 is added to mean that the document is retrieved
-        return [(ID,1) for ID in result_posting]
+        # top does not necessarily make sense for boolean retrieval, but is added to
+        # avoid printing to much outputs when searching
+        return [(ID,1) for ID in result_posting][:self.top]
 
 
 # PENDING
@@ -91,6 +89,10 @@ class Boolean(Arguments):
 
 @dataclass
 class Vsm(Arguments):
+    tfreqs: dict=field(default_factory=dict)
+    idfs: dict=field(default_factory=dict)
+    name: str='vsm' 
+    
 
     def retrieval(self, query):
         '''
@@ -124,6 +126,7 @@ class Vsm(Arguments):
 
 @dataclass
 class Bim(Arguments):
+    name: str='bim'
 
     def retrieval(self, query):
         '''
@@ -151,18 +154,25 @@ class Bim(Arguments):
 
 @dataclass
 class BimExt(Arguments):
+    k: Union[float, int]=1.5
+    b: Union[float, int]=0.75
+    # extension: str="bm25"
+    name: str='bim_extension'
 
     def retrieval(self, query):
         '''
         Using binary independence extensions model to rank the documents, accounting for the term frequencies, document
-        lengths. bm25 is known to be the best among the three extensions: bm25, bm11, two poisson
+        lengths. bm25 is known to be the best among the three extensions: bm25 (when k!=0 and b!=0), bm11 (when b=1 and k!=0), 
+        two poisson (when b=0 and k!=0)
         '''
         if type(self.index)!=InvertedIndex:
             raise TypeError ("bim_ext only support an InvertedIndex type")
-        if self.extension not in ["bm25", "bm11", "two_poisson"]:
-            raise ValueError ("argument extension takes the only values : bm25, bm11, two_poisson")
+        # if self.extension not in ["bm25", "bm11", "two_poisson"]:
+        #     raise ValueError ("argument extension takes the only values : bm25, bm11, two_poisson")
         if self.correct_query:
             query_correction(query, self.index)
+        
+        self.name='bim_extension'+'_k='+str(self.k)+'_b='+str(self.b)
 
         doc_scores={ID: 0 for ID in self.index.documents}
         preprocessed_query=simple_preprocessing(query)
@@ -175,9 +185,8 @@ class BimExt(Arguments):
                 for doc_id in doc_ids:
                     freq=self.index.raw_freq[doc_id][term]
                     l_doc=len(self.index.raw_freq[doc_id])
-                    extensions={"two_poisson":freq*(self.k+1)/(freq+self.k), "bm11":freq*(self.k+1)/(freq+self.k*l_doc/l_avg),
-                                "bm25":freq*(self.k+1)/(self.k*(1-self.b)+freq+self.k*l_doc*self.b/l_avg)}
-                    doc_scores[doc_id]+=extensions[self.extension]*log10(0.5*K/len(doc_ids))
+                    adjustment=freq*(self.k+1)/(self.k*(1-self.b)+freq+self.k*l_doc*self.b/l_avg)
+                    doc_scores[doc_id]+=adjustment*log10(0.5*K/len(doc_ids))
                     
         return rank_documents(doc_scores, self.top)
 
@@ -185,7 +194,9 @@ class BimExt(Arguments):
 
 @dataclass
 class QueryLklhd(Arguments):
-    
+    lang_model: dict=field(default_factory=dict)
+    name: str='query_likelihood'
+
     def retrieval(self, query):
         '''
         Ranking the documents using a language model.
@@ -214,6 +225,14 @@ class QueryLklhd(Arguments):
 
 @dataclass
 class W2Vsm(Arguments):
+    word_embeds: dict=field(default_factory=dict)
+    idfs: dict=field(default_factory=dict) 
+    precluster: bool=False
+    cluster_centers: dict=field(default_factory=dict)
+    doc_cluster_labels: Union[array, list]=array([])
+    top_center: int=50
+    doc_embeds: dict=field(default_factory=dict)
+    name: str='w2vsm'
 
     def retrieval(self, query):
         '''
@@ -222,14 +241,15 @@ class W2Vsm(Arguments):
         represent the documents (by a weighted average of its constitutent embeddings, eg a tf-idf weight
         '''
         if type(self.index)!=InvertedIndex:
-            raise TypeError ("w2v_vsm supports only an InvertedIndex type")
+            raise TypeError ("w2vsm supports only an InvertedIndex type")
         if self.correct_query:
             query_correction(query, self.index)
         preprocessed_query=simple_preprocessing(query)
         
 
-        # embedding of the query
-        query_term_weights=[preprocessed_query.count(term)*self.idfs[term] for term in preprocessed_query if term in self.idfs]
+        # embedding of the query, a term in the query should appear both in the word embeddings and the idfs to be taken into account
+        query_term_weights=[preprocessed_query.count(term)*self.idfs[term] for term in preprocessed_query\
+                            if term in self.word_embeds and term in self.idfs]
         if sum(query_term_weights)>0:
             query_embed=average(a=[self.word_embeds[term] for term in preprocessed_query 
                         if term in self.word_embeds and term in self.idfs], axis=0,\
@@ -261,6 +281,11 @@ class W2Vsm(Arguments):
 
 @dataclass
 class Lsi(Arguments):
+    svd_word_doc_mat: Union[array, list]=array([])
+    wtoi: dict=field(default_factory=dict)
+    dtoi: dict=field(default_factory=dict)
+    idfs: dict=field(default_factory=dict)
+    name: str='lsi'
 
     def retrieval(self, query):
         '''
@@ -291,3 +316,9 @@ class Lsi(Arguments):
         doc_scores={ID: cosine_similarity([proj_query, proj_docs[ID]])[0,1] for ID in self.dtoi}
 
         return rank_documents(doc_scores, self.top)
+
+
+# PENDING
+# @dataclass
+# class MatchPyramid(Arguments):
+
