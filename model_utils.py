@@ -4,6 +4,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from scipy.sparse.linalg import svds
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 def intersect(P1,P2):
@@ -296,7 +297,7 @@ def wd(index):
     in the word-document matrix
     '''
     if type(index)not in [InvertedIndex, SubInvertedIndex]:
-        raise TypeError ("wd supports only an (Sub)InvertedIndex types")
+        raise TypeError ("wd supports only (Sub)InvertedIndex type")
 
     WD=zeros((len(index.index), len(index.documents)))
     T=list(index.index)
@@ -310,6 +311,35 @@ def wd(index):
         [index.raw_freq[d][term] for term in index.raw_freq[d]]
 
     return WD, wtoi, dtoi
+
+
+def wp(sentence1, sentence2, word_embeds=None, interaction="indicator"):
+    '''
+    Builds a word-pair interactions matrix from two sentences
+    '''
+    interactions=["indicator", "cosine"]
+    if interaction not in interactions:
+        raise ValueError (f'wp supports only {interactions} values for argument interaction')
+
+    if interaction=="cosine" and word_embeds is None:
+        raise ValueError ("when interaction is set to 'cosine', word_embeds should be set a dictionary like argument with the terms/tokens of the vocabulary as keys and the embdeddings as values") 
+
+    # To make sure that the terms in the sentences have embeddings
+    if word_embeds is not None:
+        sentence1=[term for term in sentence1 if term in word_embeds]
+        sentence2=[term for term in sentence2 if term in word_embeds]
+
+    if interaction=="cosine":
+        WP=array([cosine_similarity([word_embeds[t1], word_embeds[t2]])[0,1] for t1 in sentence1\
+        for t2 in sentence2])
+    elif interaction=="indicator":
+        WP=array([(t1==t2)*1 for t1 in sentence1 for t2 in sentence2])
+        
+
+    return WP.reshape(len(sentence1),len(sentence2))
+    
+
+
 
 
 def rank_documents(doc_scores, top):
